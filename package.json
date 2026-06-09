@@ -25,6 +25,7 @@
     "typescript": "^5.9.3"
   },
   "dependencies": {
+    "@ai-sdk/groq": "^2.0.40",
     "@ai-sdk/openai": "^2.0.72",
     "@lmnr-ai/lmnr": "^0.7.9",
     "@types/shelljs": "^0.8.17",
