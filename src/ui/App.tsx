@@ -46,6 +46,8 @@ export function App() {
             setIsLoading(true);
             setStreamingText("");
             setActiveToolCalls([]);
+            
+            let currentToolCalls: ActiveToolCall[] = [];
 
             try {
                 const newHistory = await runAgent(
@@ -56,32 +58,36 @@ export function App() {
                             setStreamingText((prev) => prev + token);
                         },
                         onToolCallStart: (name, args) => {
-                            setActiveToolCalls((prev) => [
-                                ...prev,
-                                {
-                                    id: `${name}-${Date.now()}`,
-                                    name,
-                                    args,
-                                    status: "pending",
-                                },
-                            ]);
+                            const tc: ActiveToolCall = {
+                                id: `${name}-${Date.now()}`,
+                                name,
+                                args,
+                                status: "pending",
+                            };
+                            currentToolCalls = [...currentToolCalls, tc];
+                            setActiveToolCalls(currentToolCalls);
                         },
                         onToolCallEnd: (name, result) => {
-                            setActiveToolCalls((prev) =>
-                                prev.map((tc) =>
-                                    tc.name === name && tc.status === "pending"
-                                        ? { ...tc, status: "complete", result }
-                                        : tc,
-                                ),
+                            currentToolCalls = currentToolCalls.map((tc) =>
+                                tc.name === name && tc.status === "pending"
+                                    ? { ...tc, status: "complete", result }
+                                    : tc,
                             );
+                            setActiveToolCalls(currentToolCalls);
                         },
                         onComplete: (response) => {
-                            if (response) {
-                                setMessages((prev) => [
-                                    ...prev,
-                                    { role: "assistant", content: response },
-                                ]);
-                            }
+                            setMessages((prev) => [
+                                ...prev,
+                                { 
+                                    role: "assistant", 
+                                    content: response || "",
+                                    toolCalls: currentToolCalls.map(tc => ({
+                                        name: tc.name,
+                                        args: tc.args,
+                                        result: tc.result
+                                    }))
+                                },
+                            ]);
                             setStreamingText("");
                             setActiveToolCalls([]);
                         },
