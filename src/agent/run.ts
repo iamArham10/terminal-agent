@@ -2,12 +2,17 @@ import "dotenv/config";
 import { generateText } from "ai";
 // import { openai } from "@ai-sdk/openai";
 import { groq } from "@ai-sdk/groq";
+import { Laminar, getTracer } from "@lmnr-ai/lmnr";
 
-import { tools } from "./tools";
-import { executeTool } from "./executeTool";
-import { SYSTEM_PROMPT } from "./system/prompt";
+import { tools } from "./tools/index.ts";
+import { executeTool } from "./executeTool.ts";
+import { SYSTEM_PROMPT } from "./system/prompt.ts";
 
 const MODEL_NAME = "llama-3.3-70b-versatile";
+
+Laminar.initialize({
+    projectApiKey: process.env.LMNR_PROJECT_API_KEY,
+});
 
 export async function runAgent(userMessage: string): Promise<string> {
     const { text, toolCalls } = await generateText({
@@ -15,7 +20,12 @@ export async function runAgent(userMessage: string): Promise<string> {
         prompt: userMessage,
         system: SYSTEM_PROMPT,
         tools,
+        experimental_telemetry: {
+            isEnabled: true,
+            tracer: getTracer(),
+        },
     });
+
     console.log(toolCalls);
     console.log(text);
 
@@ -24,6 +34,8 @@ export async function runAgent(userMessage: string): Promise<string> {
             await executeTool(tool.toolName, tool.toolCallId, tool.input),
         );
     });
-}
 
-runAgent("What is the current weather?");
+    await Laminar.flush();
+    console.log("done");
+    return "hello";
+}
