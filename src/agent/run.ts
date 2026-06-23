@@ -1,5 +1,5 @@
 import "dotenv/config";
-import { generateText, streamText, type ModelMessage } from "ai";
+import { streamText, type ModelMessage } from "ai";
 // import { openai } from "@ai-sdk/openai";
 import { groq } from "@ai-sdk/groq";
 import { Laminar, getTracer } from "@lmnr-ai/lmnr";
@@ -107,7 +107,13 @@ export async function runAgent(
                         type: "tool-result",
                         toolCallId: tc.toolCallId,
                         toolName: tc.toolName,
-                        output: { type: "text", value: typeof result === "string" ? result : JSON.stringify(result) },
+                        output: {
+                            type: "text",
+                            value:
+                                typeof result === "string"
+                                    ? result
+                                    : JSON.stringify(result),
+                        },
                     },
                 ],
             });

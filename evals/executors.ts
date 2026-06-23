@@ -1,9 +1,22 @@
-import { EvalData, SingleTurnResult } from "./types";
-import { generateText, stepCountIs, tool, type ToolSet } from "ai";
-import { groq } from "@ai-sdk/groq";
+import {
+    type EvalData,
+    type MultiTurnEvalData,
+    type MultiTurnResult,
+    type SingleTurnResult,
+} from "./types";
+import {
+    generateText,
+    stepCountIs,
+    tool,
+    type ModelMessage,
+    type ToolSet,
+} from "ai";
+import { openai } from "@ai-sdk/openai";
 import z from "zod";
 
-import { buildMessages } from "./utils";
+import { buildMessages, buildMockedTools } from "./utils";
+import { SYSTEM_PROMPT } from "../src/agent/system/prompt";
+import type { openai } from "@ai-sdk/openai";
 
 const TOOL_DEFINITIONS: any = {
     readFile: {
@@ -61,16 +74,16 @@ export const singleTurnExecutorWithMocks = async (data: EvalData) => {
 
     // generate text
     const { toolCalls } = await generateText({
-        model: groq(data.config?.model ?? "llama-3.3-70b-versatile"),
+        model: openai(data.config?.model ?? "gpt-4o-mini"),
         messages,
         tools,
         stopWhen: stepCountIs(1),
         temperature: data.config?.temperature ?? undefined,
-        // providerOptions: {
-        //     openai: {
-        //         reasoningEffort: "high",
-        //     },
-        // },
+        providerOptions: {
+            openai: {
+                reasoningEffort: "medium",
+            },
+        },
     });
 
     const calls = toolCalls.map((tc) => ({
@@ -86,3 +99,50 @@ export const singleTurnExecutorWithMocks = async (data: EvalData) => {
         selectedAny: toolNames.length > 0,
     };
 };
+
+export async function multiTurnWithMock(
+    data: MultiTurnEvalData,
+): Promise<MultiTurnResult> {
+    const tools = buildMockedTools(data.mockTools);
+
+    const messages: ModelMessage[] = data.messages ?? [
+        { role: "system", content: SYSTEM_PROMPT },
+        { role: "user", content: data.prompt! },
+    ];
+
+    const result = await generateText({
+        model: openai("gpt-4o-mini"),
+        messages,
+        tools,
+        stopWhen: stepCountIs(data.config?.maxSteps ?? 20),
+    });
+
+    // extract all the tool calls
+    const allToolCalls: string[] = [];
+    const steps = result.steps.map((step) => {
+        const stepToolCalls = (step.toolCalls ?? []).map((tc) => {
+            allToolCalls.push(tc.toolName);
+            return { toolName: tc.toolName, args: "args" in tc ? tc.args : {} };
+        });
+
+        const stepToolResults = (step.toolResults ?? []).map((tr) => ({
+            toolName: tr.toolName,
+            result: "result" in tr ? tr.result : tr,
+        }));
+
+        return {
+            toolCalls: stepToolCalls.length > 0 ? stepToolCalls : undefined,
+            toolResults:
+                stepToolResults.length > 0 ? stepToolResults : undefined,
+            text: step.text || undefined,
+        };
+    });
+
+    const toolsUsed = [...new Set(allToolCalls)];
+    return {
+        text: result.text,
+        steps,
+        toolsUsed,
+        toolCallOrder: allToolCalls,
+    };
+}
