@@ -84,6 +84,7 @@ export async function runAgent(
         const toolCalls: ToolCallInfo[] = [];
         let currentText = "";
         let streamError: Error | null = null;
+        let rejected = false;
 
         try {
             for await (const chunk of result.fullStream) {
@@ -94,12 +95,22 @@ export async function runAgent(
 
                 if (chunk.type === "tool-call") {
                     const input = "input" in chunk ? chunk.input : {};
+
                     toolCalls.push({
                         toolCallId: chunk.toolCallId,
                         toolName: chunk.toolName,
                         args: input as Record<string, unknown>,
                     });
                     callbacks.onToolCallStart(chunk.toolName, input);
+
+                    const approved = await callbacks.onToolApproval(
+                        chunk.toolName,
+                        input,
+                    );
+                    if (!approved) {
+                        rejected = true;
+                        break;
+                    }
                 }
             }
         } catch (error) {
@@ -125,35 +136,42 @@ export async function runAgent(
             break;
         }
 
-        const finishReason = await result.finishReason;
-
-        if (finishReason !== "tool-calls" || toolCalls.length === 0) {
-            const responseMessages = await result.response;
-            messages.push(...responseMessages.messages);
-            reportTokenUsage();
+        if (rejected) {
             break;
         }
 
+        const finishReason = await result.finishReason;
         const responseMessages = await result.response;
+
+        if (toolCalls.length > 0) {
+            for (const tc of toolCalls) {
+                if (finishReason === "tool-calls") {
+                    const result = await executeTool(tc.toolName, tc.args);
+                    callbacks.onToolCallEnd(tc.toolName, result);
+
+                    messages.push({
+                        role: "tool",
+                        content: [
+                            {
+                                type: "tool-result",
+                                toolCallId: tc.toolCallId,
+                                toolName: tc.toolName,
+                                output: { type: "text", value: result },
+                            },
+                        ],
+                    });
+                } else {
+                    callbacks.onToolCallEnd(tc.toolName, "Executed by provider");
+                }
+                reportTokenUsage();
+            }
+        }
+
         messages.push(...responseMessages.messages);
         reportTokenUsage();
 
-        for (const tc of toolCalls) {
-            const result = await executeTool(tc.toolName, tc.args);
-            callbacks.onToolCallEnd(tc.toolName, result);
-
-            messages.push({
-                role: "tool",
-                content: [
-                    {
-                        type: "tool-result",
-                        toolCallId: tc.toolCallId,
-                        toolName: tc.toolName,
-                        output: { type: "text", value: result },
-                    },
-                ],
-            });
-            reportTokenUsage();
+        if (finishReason !== "tool-calls") {
+            break;
         }
     }
 
