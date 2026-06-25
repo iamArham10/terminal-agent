@@ -27,6 +27,7 @@
   "dependencies": {
     "@ai-sdk/openai": "^2.0.72",
     "@lmnr-ai/lmnr": "^0.7.9",
+    "@tavily/ai-sdk": "^0.5.0",
     "@types/shelljs": "^0.8.17",
     "ai": "^5.0.102",
     "ink": "^6.5.1",
