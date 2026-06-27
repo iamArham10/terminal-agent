@@ -3,7 +3,7 @@ import { openai } from "@ai-sdk/openai";
 import { getTracer } from "@lmnr-ai/lmnr";
 import { tools } from "./tools/index.ts";
 import { executeTool } from "./executeTool.ts";
-import { SYSTEM_PROMPT } from "./system/prompt.ts";
+import { buildSystemPrompt } from "./system/prompt.ts";
 import { Laminar } from "@lmnr-ai/lmnr";
 import type { AgentCallbacks, ToolCallInfo } from "../types.ts";
 import {
@@ -28,6 +28,7 @@ export async function runAgent(
     callbacks: AgentCallbacks,
 ): Promise<ModelMessage[]> {
     const modelLimits = getModelLimits(MODEL_NAME);
+    const SYSTEM_PROMPT = await buildSystemPrompt();
 
     // Filter and check if we need to compact the conversation history before starting
     let workingHistory = filterCompatibleMessages(conversationHistory);
@@ -115,8 +116,6 @@ export async function runAgent(
             }
         } catch (error) {
             streamError = error as Error;
-            // If we have some text, continue processing
-            // Otherwise, rethrow if it's not a "no output" error
             if (
                 !currentText &&
                 !streamError.message.includes("No output generated")
@@ -127,9 +126,7 @@ export async function runAgent(
 
         fullResponse += currentText;
 
-        // If stream errored with "no output" and we have no text, try to recover
         if (streamError && !currentText) {
-            // Add a fallback response
             fullResponse =
                 "I apologize, but I wasn't able to generate a response. Could you please try rephrasing your message?";
             callbacks.onToken(fullResponse);
@@ -140,8 +137,19 @@ export async function runAgent(
             break;
         }
 
-        const finishReason = await result.finishReason;
-        const responseMessages = await result.response;
+        let finishReason: string;
+        let responseMessages: Awaited<typeof result.response>;
+
+        try {
+            finishReason = await result.finishReason;
+            responseMessages = await result.response;
+        } catch {
+            // Stream failed — treat as a stop with no extra messages
+            break;
+        }
+
+        // Push the assistant message(s) BEFORE tool results
+        messages.push(...responseMessages.messages);
 
         if (toolCalls.length > 0) {
             for (const tc of toolCalls) {
@@ -161,13 +169,14 @@ export async function runAgent(
                         ],
                     });
                 } else {
-                    callbacks.onToolCallEnd(tc.toolName, "Executed by provider");
+                    callbacks.onToolCallEnd(
+                        tc.toolName,
+                        "Executed by provider",
+                    );
                 }
                 reportTokenUsage();
             }
         }
-
-        messages.push(...responseMessages.messages);
         reportTokenUsage();
 
         if (finishReason !== "tool-calls") {
