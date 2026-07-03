@@ -2,6 +2,29 @@
 
 A terminal-based AI agent with tool use, semantic document search (RAG), file management, shell execution, and web search.
 
+## What I added
+
+I extended this terminal agent with a full RAG workflow and web search support:
+
+- RAG search over local documents using ChromaDB
+- Document ingestion for Markdown, TXT, and PDF files
+- Google embeddings for semantic search
+- Hash-based re-indexing so unchanged files are skipped
+- Collection support for separate knowledge bases
+- LLM-callable `ragSearch` tool
+- Tavily-powered `webSearch` tool
+- Shell command execution through `runCommand`
+- Human-in-the-loop tool handling
+- CLI ingestion flow with `agi ingest`
+
+This makes the agent useful for searching local notes, PDFs, project docs, and web results from the same terminal chat interface.
+
+
+
+## Project note
+
+This project started as a fork of `Hendrixer/agents-v2`. My work focuses on adding RAG, Tavily web search, shell execution, document ingestion, and agent tooling improvements.
+
 ---
 
 ## Requirements
@@ -60,7 +83,7 @@ GOOGLE_EMBEDDING_MODEL=gemini-embedding-001
 Chroma is required for the RAG (`ragSearch`) tool to work.
 
 ```bash
-# Start in the background (sstores data to .rag/chroma)
+# Start in the background (stores data to .rag/chroma)
 npx chroma run --path .rag/chroma --host localhost --port 8000
 ```
 
@@ -234,46 +257,7 @@ Runs with `tsx` (no build step needed). Watches for file changes.
 
 ---
 
-## Project structure
 
-```
-src/
-├── agent/
-│   ├── rag/
-│   │   ├── config.ts       # RAG configuration
-│   │   ├── types.ts        # Shared types
-│   │   ├── scanner.ts      # Directory scanner
-│   │   ├── parser.ts       # File parser (.md/.txt/.pdf)
-│   │   ├── chunk.ts        # Text chunker
-│   │   ├── embed.ts        # Embedding generator (Google)
-│   │   ├── collection.ts   # Chroma collection manager
-│   │   ├── hash.ts         # File hash tracking
-│   │   ├── ids.ts          # Stable chunk ID generation
-│   │   ├── metadata.ts     # Chunk metadata builder
-│   │   ├── ingest.ts       # Ingestion pipeline
-│   │   └── search.ts       # Semantic search
-│   ├── tools/
-│   │   ├── ragSearch.ts    # RAG search tool (LLM-callable)
-│   │   ├── file.ts         # File tools
-│   │   ├── shell.ts        # Shell tool
-│   │   ├── webSearch.ts    # Web search tool
-│   │   └── index.ts        # Tool registry
-│   ├── system/
-│   │   ├── prompt.ts       # System prompt
-│   │   └── filterMessages.ts
-│   ├── context/            # Token counting and compaction
-│   ├── run.ts              # Agent loop
-│   └── executeTool.ts      # Tool executor
-├── ui/                     # Ink terminal UI
-├── cli.ts                  # CLI entry point
-└── index.ts                # App entry point
-
-.rag/
-├── chroma/                 # Chroma vector database
-└── hashes.json             # File hash store (skip unchanged files)
-```
-
----
 
 ## Troubleshooting
 
