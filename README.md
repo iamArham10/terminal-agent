@@ -291,6 +291,41 @@ Collections let you organize different knowledge bases and search them separatel
 | `.txt`    | Text     |
 | `.pdf`    | PDF      |
 
+### Source citations
+
+Newly indexed chunks include the source filename/path, a stable chunk ID, and
+one-based inclusive line ranges for Markdown/TXT. PDF citations use physical,
+one-based page numbers, not printed page labels. Chunks never cross PDF pages;
+blank pages are skipped without renumbering later pages.
+
+`ragSearch` returns a JSON string containing `{ message, results }`. Each result
+includes a structured `citation` with a readable `label`, file, collection, chunk
+ID, and available line/page location. The model is instructed to cite the labels:
+
+```text
+[/path/to/notes.md, lines 12–18, chunk 2/4]
+[/path/to/report.pdf, p. 3, chunk 5/9]
+```
+
+The transcript also shows full, deduplicated labels under **Retrieved sources**,
+which survive session resume. These are retrieved candidates, not a guarantee
+that every source supports every answer. Locations refer to the indexed snapshot.
+
+**Existing indexes remain searchable** with filename/chunk citations; missing
+locations are never invented. To add page/line metadata to unchanged documents,
+clear the hash cache and re-ingest each original directory/collection:
+
+```bash
+rm .rag/hashes.json  # only if present; preserves indexed Chroma data
+agi ingest ./notes --collection notes
+agi ingest ./research --collection research
+```
+
+Run from the same working directory used for original ingestion. Without clearing
+cached hashes, unchanged files are skipped and will not gain location metadata.
+Re-ingestion requires Chroma and incurs embedding API usage/cost. No OCR is
+performed; image-only PDFs may contain no searchable text.
+
 ### How re-indexing works
 
 - Unchanged files are **skipped** (hash-based).

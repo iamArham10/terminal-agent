@@ -1,36 +1,44 @@
 import fs from "node:fs/promises";
 import path from "node:path";
-import type { ParsedDocument } from "./types.js";
 import { PDFParse } from "pdf-parse";
+import type { ParsedDocument } from "./types.js";
+
+export function documentFromPdfPages(
+  filePath: string,
+  pages: ReadonlyArray<{ num: number; text: string }>,
+): ParsedDocument {
+  if (pages.some((page) => !Number.isInteger(page.num) || page.num < 1)) {
+    throw new Error("PDF parser returned an invalid page number");
+  }
+  return {
+    path: filePath,
+    extension: ".pdf",
+    text: pages.map((page) => page.text).join("\n\n"),
+    pages: pages.map((page) => ({ pageNumber: page.num, text: page.text })),
+  };
+}
+
 export async function parseFile(filePath: string): Promise<ParsedDocument> {
   const extension = path.extname(filePath).toLowerCase();
 
-  let text: string;
-
   switch (extension) {
     case ".md":
-    case ".txt": {
-      text = await fs.readFile(filePath, "utf8");
-      break;
-    }
-
+    case ".txt":
+      return {
+        path: filePath,
+        extension,
+        text: await fs.readFile(filePath, "utf8"),
+      };
     case ".pdf": {
-      const buffer = await fs.readFile(filePath);
-      const parser = new PDFParse({ data: buffer });
-      const result = await parser.getText();
-      text = result.text;
-      await parser.destroy();
-      break;
+      const parser = new PDFParse({ data: await fs.readFile(filePath) });
+      try {
+        const result = await parser.getText({ pageJoiner: "" });
+        return documentFromPdfPages(filePath, result.pages);
+      } finally {
+        await parser.destroy();
+      }
     }
-
-    default: {
+    default:
       throw new Error(`Unsupported file extension: ${extension}`);
-    }
   }
-
-  return {
-    path: filePath,
-    extension,
-    text,
-  };
 }
