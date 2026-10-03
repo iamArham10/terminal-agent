@@ -2,6 +2,60 @@
 
 A terminal-based AI agent with tool use, semantic document search (RAG), file management, shell execution, and web search.
 
+## Terminal UI
+
+The Ink interface uses a restrained cyan/neutral theme, a live Ready/Working/Approval
+header, a resize-aware conversation viewport, and an always-visible context estimate.
+Messages support lightweight Markdown: headings, bullets, quotes, **bold**, inline
+code, fenced code blocks, and visible link targets. Code is wrapped, not executed;
+terminal control sequences and directional overrides in displayed content are removed.
+The welcome screen suggests prompts and explains tool permissions.
+
+### Controls
+
+| Action                                            | Keys                                   |
+| ------------------------------------------------- | -------------------------------------- |
+| Send message                                      | Enter                                  |
+| Move / edit                                       | Left/Right, Home/End, Backspace/Delete |
+| Start / end of line                               | Ctrl+A / Ctrl+E                        |
+| Clear line / delete to end / delete previous word | Ctrl+U / Ctrl+K / Ctrl+W               |
+| Previous / next prompt (preserves your draft)     | Up/Down or Ctrl+P / Ctrl+N             |
+| Scroll conversation                               | PageUp / PageDown                      |
+| Exit                                              | Ctrl+C, or send `exit` / `quit`        |
+
+The composer is single-line with a horizontal cursor viewport. Pasted line breaks
+become spaces; Enter is still required to send. Input pauses while the agent runs.
+Prompt history is in-memory only (up to 100 entries); this UI does not add sessions.
+The transcript follows new output unless you scroll back. Recent tool activity shows
+arguments and a brief result/status; it is a summary, not a durable execution log.
+
+### Tool approvals and context
+
+Every existing approval callback remains in place. **Deny is selected by default**;
+Enter confirms the selected choice, arrows/Tab switch between Deny and Allow once,
+and Esc or `n` denies immediately. Full sanitized arguments are paged (not silently
+truncated): use PageUp/PageDown or `[` / `]` to inspect them before allowing.
+The approval panel temporarily replaces the transcript to keep permissions visible
+in small terminals. Local tools execute once, only after approval; declining any
+local tool cancels the entire batch. There is no “allow all” mode. Provider-executed
+remote tools, if configured, cannot be gated by local approval.
+
+Context is an **estimate** supplied by the existing agent, not billed usage. It shows
+tokens versus model capacity and the existing compaction threshold. Colours warn as
+the threshold approaches. Compaction behavior is unchanged; the shared runner
+prevents SDK auto-execution of local tools and reports failed/truncated turns as errors.
+
+Layout reflows on terminal resize; 12 columns × 10 rows is the minimum layout size.
+Markdown is intentionally lightweight (no tables, syntax highlighting, or full
+CommonMark parsing). Terminal Unicode cell widths can vary by font/emulator.
+
+Offline validation (no API keys or services required):
+
+```bash
+npm run test:ui
+npm run build
+```
+
 ## What I added
 
 I extended this terminal agent with a full RAG workflow and web search support:
@@ -18,8 +72,6 @@ I extended this terminal agent with a full RAG workflow and web search support:
 - CLI ingestion flow with `agi ingest`
 
 This makes the agent useful for searching local notes, PDFs, project docs, and web results from the same terminal chat interface.
-
-
 
 ## Project note
 
@@ -256,8 +308,6 @@ npm run dev
 Runs with `tsx` (no build step needed). Watches for file changes.
 
 ---
-
-
 
 ## Troubleshooting
 

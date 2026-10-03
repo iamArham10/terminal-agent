@@ -1,38 +1,48 @@
-import React from 'react';
-import { Box, Text } from 'ink';
-import InkSpinner from 'ink-spinner';
+import React from "react";
+import { Text } from "ink";
+import InkSpinner from "ink-spinner";
+import { argsSummary, clip } from "../helpers.ts";
+import { theme } from "../theme.ts";
 
 export interface ToolCallProps {
-  name: string;
-  args?: unknown;
-  status: 'pending' | 'complete';
-  result?: string;
+	name: string;
+	args?: unknown;
+	status: "pending" | "complete" | "denied" | "failed";
+	result?: string;
+	width?: number;
 }
-
-export function ToolCall({ name, status, result }: ToolCallProps) {
-  return (
-    <Box flexDirection="column" marginLeft={2}>
-      <Box>
-        <Text color="yellow">⚡ </Text>
-        <Text color="yellow" bold>
-          {name}
-        </Text>
-        {status === 'pending' ? (
-          <Text>
-            {' '}
-            <Text color="cyan">
-              <InkSpinner type="dots" />
-            </Text>
-          </Text>
-        ) : (
-          <Text color="green"> ✓</Text>
-        )}
-      </Box>
-      {status === 'complete' && result && (
-        <Box marginLeft={2}>
-          <Text dimColor>→ {result.slice(0, 100)}{result.length > 100 ? '...' : ''}</Text>
-        </Box>
-      )}
-    </Box>
-  );
+export function ToolCall({
+	name,
+	args,
+	status,
+	result,
+	width = 80,
+}: ToolCallProps) {
+	const summary =
+		(status === "complete" || status === "failed") && result
+			? clip(result, width)
+			: argsSummary(args, width);
+	return (
+		<Text wrap="truncate">
+			<Text
+				color={
+					status === "complete"
+						? theme.success
+						: status === "failed" || status === "denied"
+							? theme.danger
+							: theme.warning
+				}
+			>
+				{status === "pending" ? (
+					<InkSpinner type="dots" />
+				) : status === "complete" ? (
+					"✓"
+				) : (
+					"×"
+				)}
+			</Text>{" "}
+			<Text bold>{clip(name, 24)}</Text>
+			<Text dimColor>{` · ${status} · ${summary}`}</Text>
+		</Text>
+	);
 }
