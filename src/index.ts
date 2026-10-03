@@ -1,5 +1,3 @@
-import React from 'react';
-import { render } from 'ink';
-import { App } from './ui/index.tsx';
+import { main } from "./main.ts";
 
-render(React.createElement(App));
+await main();

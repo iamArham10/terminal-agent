@@ -1,6 +1,5 @@
 import React, { useState, useCallback, useMemo, useRef } from "react";
 import { Box, Text, useApp, useInput } from "ink";
-import type { ModelMessage } from "ai";
 import { runAgent } from "../agent/run.ts";
 import {
 	MessageList,
@@ -12,8 +11,12 @@ import { Spinner } from "./components/Spinner.tsx";
 import { Input } from "./components/Input.tsx";
 import { ToolApproval } from "./components/ToolApproval.tsx";
 import { TokenUsage } from "./components/TokenUsage.tsx";
-import type { ToolApprovalRequest, TokenUsageInfo } from "../types.ts";
-
+import type {
+	ToolApprovalRequest,
+	TokenUsageInfo,
+	SavedSession,
+} from "../types.ts";
+import { type SessionStore, sessionTitle } from "../sessions/store.ts";
 import { clip } from "./helpers.ts";
 import { theme } from "./theme.ts";
 import { useTerminalSize } from "./useTerminalSize.ts";
@@ -22,24 +25,30 @@ interface ActiveToolCall extends ToolCallProps {
 	id: string;
 }
 
-export function App() {
+interface AppProps {
+	initialSession: SavedSession;
+	sessionStore: SessionStore;
+}
+
+export function App({ initialSession, sessionStore }: AppProps) {
 	const { exit } = useApp();
 	const { columns, rows } = useTerminalSize();
 	const width = Math.max(8, columns - 2);
 	const compact = rows < 20;
 	const [scroll, setScroll] = useState(0);
+	const sessionRef = useRef(initialSession);
 	const running = useRef(false);
 	const toolId = useRef(0);
-	const [messages, setMessages] = useState<Message[]>([]);
-	const [conversationHistory, setConversationHistory] = useState<
-		ModelMessage[]
-	>([]);
+	const [messages, setMessages] = useState<Message[]>(initialSession.messages);
+	const [saveWarning, setSaveWarning] = useState<string | null>(null);
 	const [isLoading, setIsLoading] = useState(false);
 	const [streamingText, setStreamingText] = useState("");
 	const [activeToolCalls, setActiveToolCalls] = useState<ActiveToolCall[]>([]);
 	const [pendingApproval, setPendingApproval] =
 		useState<ToolApprovalRequest | null>(null);
-	const [tokenUsage, setTokenUsage] = useState<TokenUsageInfo | null>(null);
+	const [tokenUsage, setTokenUsage] = useState<TokenUsageInfo | null>(
+		initialSession.tokenUsage,
+	);
 
 	const handleSubmit = useCallback(
 		async (userInput: string) => {
@@ -54,14 +63,20 @@ export function App() {
 
 			running.current = true;
 			setScroll(0);
-			setMessages((prev) => [...prev, { role: "user", content: userInput }]);
+			const current = sessionRef.current;
+			const turnMessages: Message[] = [
+				...current.messages,
+				{ role: "user", content: userInput },
+			];
+			let latestUsage = current.tokenUsage;
+			setMessages([...turnMessages]);
 			setIsLoading(true);
 			setStreamingText("");
 			setActiveToolCalls([]);
 
 			let partialResponse = "";
 			try {
-				const newHistory = await runAgent(userInput, conversationHistory, {
+				const newHistory = await runAgent(userInput, current.history, {
 					onToken: (token) => {
 						partialResponse += token;
 						setStreamingText((prev) => prev + token);
@@ -70,12 +85,7 @@ export function App() {
 						const id = `${name}-${++toolId.current}`;
 						setActiveToolCalls((prev) => [
 							...prev,
-							{
-								id,
-								name,
-								args,
-								status: "pending",
-							},
+							{ id, name, args, status: "pending" },
 						]);
 					},
 					onToolCallEnd: (name, result) => {
@@ -84,16 +94,22 @@ export function App() {
 								(tc) => tc.name === name && tc.status === "pending",
 							);
 							return prev.map((tc, i) =>
-								i === index ? { ...tc, status: "complete", result } : tc,
+								i === index
+									? {
+											...tc,
+											status: result.startsWith("Cancelled:")
+												? "denied"
+												: "complete",
+											result,
+										}
+									: tc,
 							);
 						});
 					},
 					onComplete: (response) => {
 						if (response) {
-							setMessages((prev) => [
-								...prev,
-								{ role: "assistant", content: response },
-							]);
+							turnMessages.push({ role: "assistant", content: response });
+							setMessages([...turnMessages]);
 						}
 						partialResponse = "";
 						setStreamingText("");
@@ -104,21 +120,41 @@ export function App() {
 						});
 					},
 					onTokenUsage: (usage) => {
+						latestUsage = usage;
 						setTokenUsage(usage);
 					},
 				});
 
-				setConversationHistory(newHistory);
+				// Only a successfully completed loop may advance the resumable history.
+				const checkpoint: SavedSession = {
+					...current,
+					title:
+						current.revision === 0 && current.title === "New conversation"
+							? sessionTitle(userInput)
+							: current.title,
+					history: newHistory,
+					messages: turnMessages,
+					tokenUsage: latestUsage,
+				};
+				sessionRef.current = checkpoint;
+				try {
+					sessionRef.current = await sessionStore.save(checkpoint);
+					setSaveWarning(null);
+				} catch (error) {
+					setSaveWarning(
+						`Session not saved: ${error instanceof Error ? error.message : String(error)}`,
+					);
+				}
 			} catch (error) {
 				const errorMessage =
 					error instanceof Error ? error.message : "Unknown error";
-				setMessages((prev) => [
-					...prev,
-					...(partialResponse
-						? [{ role: "assistant" as const, content: partialResponse }]
-						: []),
-					{ role: "error", content: errorMessage },
-				]);
+				if (partialResponse) {
+					turnMessages.push({ role: "assistant", content: partialResponse });
+				}
+				turnMessages.push({ role: "error", content: errorMessage });
+				// Keep failed output for display, but never checkpoint incomplete tool work.
+				sessionRef.current = { ...current, messages: turnMessages };
+				setMessages([...turnMessages]);
 			} finally {
 				running.current = false;
 				setStreamingText("");
@@ -136,7 +172,7 @@ export function App() {
 				setIsLoading(false);
 			}
 		},
-		[conversationHistory, exit],
+		[sessionStore, exit],
 	);
 
 	const displayMessages = useMemo<Message[]>(
@@ -179,6 +215,7 @@ export function App() {
 		: isLoading
 			? "Working"
 			: "Ready";
+	const sessionLabel = `${sessionRef.current.id.slice(0, 8)} · ${sessionRef.current.title}`;
 	return (
 		<Box flexDirection="column" width={columns} paddingX={1}>
 			<Box justifyContent="space-between">
@@ -200,8 +237,8 @@ export function App() {
 			<Text dimColor>
 				{clip(
 					effectiveScroll
-						? `History · ${effectiveScroll} lines above latest · PgDn to return`
-						: "─".repeat(width),
+						? `${sessionRef.current.id.slice(0, 8)} · History · ${effectiveScroll} lines above latest · PgDn to return`
+						: sessionLabel,
 					width,
 				)}
 			</Text>
@@ -215,12 +252,6 @@ export function App() {
 					rows={rows}
 					onResolve={(approved) => {
 						pendingApproval.resolve(approved);
-						if (!approved)
-							setActiveToolCalls((prev) =>
-								prev.map((tc) =>
-									tc.status === "pending" ? { ...tc, status: "denied" } : tc,
-								),
-							);
 						setPendingApproval(null);
 					}}
 				/>
@@ -287,7 +318,9 @@ export function App() {
 						</Box>
 					)}
 					<Box height={1}>
-						{isLoading ? (
+						{saveWarning ? (
+							<Text color={theme.warning}>{clip(saveWarning, width)}</Text>
+						) : isLoading ? (
 							<Spinner
 								label={streamingText ? "Writing response…" : "Thinking…"}
 							/>

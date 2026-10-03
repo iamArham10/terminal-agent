@@ -16,9 +16,12 @@ import {
 import { filterCompatibleMessages } from "./system/filterMessages.ts";
 import { runAgentLoop } from "./loop.ts";
 
-Laminar.initialize({ projectApiKey: process.env.LMNR_API_KEY });
+const tracingEnabled = Boolean(process.env.LMNR_API_KEY);
+if (tracingEnabled) {
+    Laminar.initialize({ projectApiKey: process.env.LMNR_API_KEY });
+}
 
-const MODEL_NAME = "gpt-5-mini";
+const MODEL_NAME = process.env.OPENAI_MODEL?.trim() || "gpt-6-luna";
 
 export async function runAgent(
     userMessage: string,
@@ -45,12 +48,14 @@ export async function runAgent(
         { role: "user", content: userMessage },
     ];
     return runAgentLoop({
-        model: openai(MODEL_NAME),
+        model: openai.responses(MODEL_NAME),
         tools,
         messages,
         callbacks,
         executeTool,
-        telemetry: { isEnabled: true, tracer: getTracer() },
+        telemetry: tracingEnabled
+            ? { isEnabled: true, tracer: getTracer() }
+            : undefined,
         onHistoryChange: (history) => {
             if (!callbacks.onTokenUsage) return;
             const usage = estimateMessagesTokens(history);

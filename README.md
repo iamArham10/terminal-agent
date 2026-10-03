@@ -25,7 +25,8 @@ The welcome screen suggests prompts and explains tool permissions.
 
 The composer is single-line with a horizontal cursor viewport. Pasted line breaks
 become spaces; Enter is still required to send. Input pauses while the agent runs.
-Prompt history is in-memory only (up to 100 entries); this UI does not add sessions.
+Composer history is in-memory only (up to 100 entries). Conversations are saved
+separately and can be restored using the session commands below.
 The transcript follows new output unless you scroll back. Recent tool activity shows
 arguments and a brief result/status; it is a summary, not a durable execution log.
 
@@ -81,7 +82,7 @@ This project started as a fork of `Hendrixer/agents-v2`. My work focuses on addi
 
 ## Requirements
 
-- Node.js >= 20
+- Node.js >= 20.12
 - A running Chroma server (for RAG)
 - API keys (see [Environment variables](#environment-variables))
 
@@ -110,6 +111,7 @@ Create a `.env` file in the project root:
 ```env
 # Required for LLM (OpenAI)
 OPENAI_API_KEY=your_openai_key
+OPENAI_MODEL=gpt-6-luna           # optional; this is the default
 
 # Required for RAG embeddings (Google)
 GOOGLE_GENERATIVE_AI_API_KEY=your_google_key
@@ -129,6 +131,14 @@ GOOGLE_EMBEDDING_MODEL=gemini-embedding-001
 ```
 
 ---
+
+The agent and conversation summarizer use `gpt-6-luna` through OpenAI's Responses
+API by default. Override it with `OPENAI_MODEL`. Luna's context window is 1,050,000
+tokens, with up to 128,000 output tokens. Standard short-context pricing is $0.10
+per million input tokens and $0.50 per million output tokens; reasoning tokens count
+as output, and prompts over 272,000 input tokens have higher rates. See the
+[official model documentation](https://developers.openai.com/api/docs/models/gpt-6-luna).
+Laminar tracing is initialized only when `LMNR_API_KEY` is set.
 
 ## Starting the Chroma server
 
@@ -160,6 +170,90 @@ This opens the interactive chat UI. Type your message and press Enter.
 To quit: type `exit` or `quit`.
 
 ---
+
+## Saved and resumable sessions
+
+```bash
+agi sessions                 # defaults to listing saved sessions
+agi sessions list
+agi --resume                 # shorthand for the most recently saved valid session
+agi --resume latest          # explicit latest, across projects
+agi --resume <id>            # full UUID from the listing
+agi --help
+
+# The source entrypoint supports the same arguments:
+npm start -- sessions list
+npm start -- --resume
+```
+
+Running `agi` without arguments starts a **new** session. Its UUID appears in the
+UI. Sessions are automatically saved after each completed turn, before input is
+enabled again; empty sessions are not saved. The first message supplies the title.
+The listing shows IDs, titles, creation/update timestamps (UTC), and absolute
+project directories, newest first.
+
+Bare `--resume` is equivalent to `--resume latest`; an explicit full UUID selects
+that session instead. An empty `--resume=` remains an error.
+
+Resume restores the rendered user/assistant transcript, token usage, and model
+context, including completed tool calls and their results. It switches to the
+session's original project directory, rebuilds the current system prompt, and
+**waits for new input**. Stored tool calls are never replayed. If the project was
+moved or deleted, resume fails with an error rather than running tools elsewhere.
+Both entrypoints optionally load `.env` from the project working directory;
+listing and help need neither `.env` nor API keys and do not initialize providers.
+Existing environment variables take precedence over `.env`.
+
+### Storage and recovery
+
+Sessions are local versioned JSON files in:
+
+- `$XDG_STATE_HOME/terminal-agent/sessions` when `XDG_STATE_HOME` is absolute;
+- otherwise `~/.local/state/terminal-agent/sessions`.
+
+Storage uses directory mode `0700`, file mode `0600`, UUID-only filenames,
+validation of message/tool-call pairs, and same-directory atomic replacement of
+synced temporary files. Session files and the session directory cannot be
+symlinks. Malformed, oversized, unsupported, or incomplete-tool sessions are
+skipped with warnings when listing or selecting `latest`; explicitly resuming
+one fails with an actionable error. Files are never silently repaired or
+replaced. Listing an empty store does not create it.
+
+Save failures are **nonfatal**: the UI warns that the session was not saved and
+keeps the conversation in memory. Writes are queued and revision checked; a
+per-session lock prevents concurrent processes from overwriting one another.
+A stale process cannot overwrite a newer checkpoint. Resume again to continue
+from the latest saved version after a conflict (unsaved in-memory work is not
+merged). If a process dies during a save, a `.json.lock` file may remain. Its
+contents are the writer PID: only remove that lock after confirming that no
+other process is saving the session. Leftover hidden `.tmp` files are ignored.
+
+### Limitations and privacy
+
+- Local tools execute only through the explicit dispatcher after approval and
+  successful stream completion. Any denial cancels the entire local batch,
+  including earlier-approved calls; each call receives a cancellation result
+  and the assistant confirms cancellation. Stored calls are never replayed.
+- Stream errors, failed result promises, and non-completion finish reasons reject
+  the turn instead of saving partial model history. Already-completed tool side
+  effects from earlier batches cannot be rolled back if a later stream fails.
+  Pending approvals and interrupted turns are not checkpoints.
+- Provider-defined tools keep their provider configuration. Provider-executed
+  remote tools are not gated by local approval or manually re-executed; callbacks
+  explicitly label their results as provider-executed. Current bundled tools are
+  local tools and require approval.
+- Model context retains the existing compaction behavior; old tool context may
+  be summarized when it grows too large. The rendered transcript remains intact.
+- The current text-chat format is supported, including JSON tool inputs/results
+  and provider metadata. Binary attachment persistence is not supported. Each
+  session is limited to 64 MiB; listing reads session files in full.
+- Files are **not encrypted** and may contain prompts, model reasoning, file
+  contents, shell output, or secrets. Restrictive permissions are not protection
+  against other processes running as your user. Keep backups and the configured
+  state directory private. You can delete a session's JSON file while it is not
+  in use; there is no retention, deletion, branching, or merge command yet.
+- Resuming itself makes no model request. A subsequent chat turn sends restored
+  model context to the configured model provider, just like an ordinary turn.
 
 ## Ingesting documents for RAG
 
@@ -296,6 +390,19 @@ npm run build
 ```
 
 Output goes to `./dist`.
+
+Offline session and CLI tests (no API keys, model requests, or Chroma required):
+
+```bash
+npm run test:sessions
+```
+
+These use Node's test runner through the existing `tsx` dependency and temporary
+state directories, covering roundtrips, listing/latest, corrupt sessions,
+validation and traversal prevention, permissions/symlinks, concurrent saves,
+tool non-replay on load, argument parsing, and both entrypoints. Three concise
+runner regressions use the actual AI SDK `MockLanguageModelV2` to cover approval,
+batch cancellation, history save/resume, and rejection before checkpointing.
 
 ---
 
