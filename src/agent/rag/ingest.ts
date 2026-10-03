@@ -77,7 +77,7 @@ async function ingestFile(
   }
 
   const ids = createChunkIds(filePath, chunks, baseDirectory);
-  const metadatas = createChunkMetadatas(document, chunks, hash);
+  const metadatas = createChunkMetadatas(document, chunks, hash, baseDirectory);
   const embeddings = await embedMany(chunks.map((chunk) => chunk.chunk));
 
   await collection.add({

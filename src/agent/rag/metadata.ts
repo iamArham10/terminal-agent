@@ -1,3 +1,5 @@
+import path from "node:path";
+import { createChunkId } from "./ids.js";
 import type { ChunkMetadata, DocumentChunk, ParsedDocument } from "./types.js";
 
 function extensionToType(extension: string): string {
@@ -17,9 +19,18 @@ export function createChunkMetadata(
     document: ParsedDocument,
     chunk: DocumentChunk,
     fileHash: string,
+    baseDirectory = process.cwd(),
 ): ChunkMetadata {
     return {
         file: document.path,
+        filename: path.basename(document.path),
+        chunkId: createChunkId(document.path, chunk.index, baseDirectory),
+        ...(chunk.lineStart !== undefined && chunk.lineEnd !== undefined
+            ? { lineStart: chunk.lineStart, lineEnd: chunk.lineEnd }
+            : {}),
+        ...(chunk.pageNumber !== undefined
+            ? { pageNumber: chunk.pageNumber }
+            : {}),
         extension: document.extension,
         type: extensionToType(document.extension),
         chunk: chunk.index,
@@ -32,8 +43,9 @@ export function createChunkMetadatas(
     document: ParsedDocument,
     chunks: DocumentChunk[],
     fileHash: string,
+    baseDirectory = process.cwd(),
 ): ChunkMetadata[] {
     return chunks.map((chunk) =>
-        createChunkMetadata(document, chunk, fileHash),
+        createChunkMetadata(document, chunk, fileHash, baseDirectory),
     );
 }

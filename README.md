@@ -19,8 +19,6 @@ I extended this terminal agent with a full RAG workflow and web search support:
 
 This makes the agent useful for searching local notes, PDFs, project docs, and web results from the same terminal chat interface.
 
-
-
 ## Project note
 
 This project started as a fork of `Hendrixer/agents-v2`. My work focuses on adding RAG, Tavily web search, shell execution, document ingestion, and agent tooling improvements.
@@ -107,6 +105,8 @@ This opens the interactive chat UI. Type your message and press Enter.
 
 To quit: type `exit` or `quit`.
 
+Local tools execute once, only after explicit approval. Declining any tool cancels the entire local batch. Failed or truncated model turns are reported as errors rather than completed responses. Provider-executed remote tools, if configured, cannot be gated by local approval.
+
 ---
 
 ## Ingesting documents for RAG
@@ -144,6 +144,29 @@ Collections let you organize different knowledge bases and search them separatel
 | `.md`     | Markdown |
 | `.txt`    | Text     |
 | `.pdf`    | PDF      |
+
+### Source citations
+
+Newly indexed chunks store the source filename/path, stable chunk ID, and one-based inclusive line ranges for Markdown/TXT. PDF parsing preserves physical, one-based page numbers (not the page labels printed in the document). PDFs are chunked **within each page**, so a chunk never spans pages; empty pages are skipped without renumbering later pages. PDF citations use page numbers, not extracted-text line numbers.
+
+`search()` retains `file`, `score`, `content`, and `metadata`, and adds a structured `citation` with `filename`, `file`, `collection`, `chunkId`, zero-based `chunk`, optional `totalChunks`, optional `lineStart`/`lineEnd` or `pageNumber`, and a readable `label`. The `ragSearch` tool returns these results as a JSON string (`{ message, results }`), rather than the old prose result format. The model is instructed to cite the supplied labels inline, for example:
+
+```text
+[/path/to/notes.md, lines 12–18, chunk 2/4]
+[/path/to/report.pdf, p. 3, chunk 5/9]
+```
+
+The terminal tool display lists source labels without truncating them. Different paths remain distinguishable even when filenames match. Similarity is a retrieval score, not a guarantee that an excerpt supports a claim.
+
+**Existing indexes remain searchable.** Legacy metadata gets filename/chunk citations; missing page or line locations are never inferred. To add page/line metadata to unchanged documents, clear the hash cache and re-ingest each original directory/collection:
+
+```bash
+rm .rag/hashes.json  # only if present; preserves indexed Chroma data
+agi ingest ./notes --collection notes
+agi ingest ./research --collection research
+```
+
+Run these commands from the same working directory used for the original ingestion (the hash cache defaults to that directory's `.rag/hashes.json`). Merely rebuilding or running ingestion without clearing the cached hashes will skip unchanged files and will **not** add page metadata. Re-ingestion requires Chroma and the embedding API and incurs the usual embedding API usage/cost. No OCR is performed: scanned/image-only PDFs may have no searchable text. Citation locations describe the indexed snapshot; re-ingest after modifying source documents.
 
 ### How re-indexing works
 
@@ -245,6 +268,12 @@ npm run build
 
 Output goes to `./dist`.
 
+Offline citation/parser/chunking tests (no API keys or Chroma required):
+
+```bash
+npm run test:rag
+```
+
 ---
 
 ## Development mode
@@ -256,8 +285,6 @@ npm run dev
 Runs with `tsx` (no build step needed). Watches for file changes.
 
 ---
-
-
 
 ## Troubleshooting
 

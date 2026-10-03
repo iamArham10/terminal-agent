@@ -1,32 +1,11 @@
 import { tool } from "ai";
 import z from "zod";
 import { search } from "../rag/search.js";
-
-function formatSearchResults(
-    results: Awaited<ReturnType<typeof search>>,
-): string {
-    if (results.length === 0) {
-        return "No relevant documents found.";
-    }
-
-    return results
-        .map((result) => {
-            return [
-                `File: ${result.file}`,
-                `Chunk: ${result.metadata.chunk + 1}/${result.metadata.totalChunks}`,
-                `Type: ${result.metadata.type}`,
-                `Similarity: ${result.score.toFixed(2)}`,
-                "",
-                "Content:",
-                result.content,
-            ].join("\n");
-        })
-        .join("\n\n--------------------------\n\n");
-}
+import { formatSearchResults } from "../rag/citations.js";
 
 export const ragSearch = tool({
     description:
-        "Search indexed Markdown, TXT, and PDF documents using semantic search.",
+        "Search indexed Markdown, TXT, and PDF documents. Returns JSON results with structured source citations; cite each citation.label when using its content.",
     inputSchema: z.object({
         query: z.string().describe("The semantic search query"),
         collection: z
