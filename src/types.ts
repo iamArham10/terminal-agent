@@ -33,3 +33,17 @@ export interface TokenUsageInfo {
   threshold: number;
   percentage: number;
 }
+
+
+export interface SavedSession {
+  version: 1;
+  id: string;
+  revision: number;
+  title: string;
+  createdAt: string;
+  updatedAt: string;
+  projectDirectory: string;
+  history: import("ai").ModelMessage[];
+  messages: { role: "user" | "assistant"; content: string }[];
+  tokenUsage: TokenUsageInfo | null;
+}
